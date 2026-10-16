@@ -1,0 +1,105 @@
+# Local stack: PostgreSQL, mock external services, one-shot bootstrap, API, worker, dashboard.
+# Usage: cp .env.example .env && docker compose up --build
+# Dashboard: http://localhost:8080   API docs: http://localhost:8000/docs
+
+x-backend: &backend
+  build:
+    context: .
+    args:
+      PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+  image: support-agent-backend:local
+  env_file:
+    - path: .env
+      required: false
+  environment: &backend-env
+    ENVIRONMENT: ${ENVIRONMENT:-development}
+    DATABASE_URL: postgresql+psycopg://support:support@db:5432/support_agent
+    PAYMENTS_BASE_URL: http://mocks:8001/payments
+    SHIPPING_BASE_URL: http://mocks:8001/shipping
+    TICKETING_BASE_URL: http://mocks:8001/ticketing
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+
+services:
+  db:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_USER: support
+      POSTGRES_PASSWORD: support
+      POSTGRES_DB: support_agent
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support -d support_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mocks:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      ROLE: mocks
+      PORT: "8001"
+    volumes:
+      - mockdata:/srv/data
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  bootstrap:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      ROLE: bootstrap
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      db: {condition: service_healthy}
+      mocks: {condition: service_healthy}
+
+  api:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      ROLE: api
+      PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  worker:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      ROLE: worker
+    healthcheck:
+      disable: true
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:1.27-alpine}
+    image: support-agent-frontend:local
+    ports:
+      - "8080:8080"
+    depends_on:
+      api: {condition: service_healthy}
+
+volumes:
+  pgdata:
+  mockdata:
