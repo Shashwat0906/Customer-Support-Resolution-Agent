@@ -14,7 +14,7 @@ from app.db.session import session_scope
 log = logging.getLogger(__name__)
 
 _EMAIL = re.compile(r"([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
-_PHONE = re.compile(r"\+?\d[\d\s-]{8,}\d")
+_PHONE = re.compile(r"(?:\+\d{1,3}[\s-]?)?\b\d{5}[\s-]?\d{5}\b")
 _CARD = re.compile(r"\b(?:\d[ -]?){13,19}\b")
 _BEARER = re.compile(r"(?i)bearer\s+[A-Za-z0-9._-]+")
 _SECRET_KEYS = {"authorization", "token", "access_token", "api_key", "password", "secret", "jwt", "email", "phone"}

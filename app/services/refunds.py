@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -217,7 +217,7 @@ def _submit(op_id: str) -> RefundOutcome:
             return _outcome(op, reason_code="ATTEMPTS_EXHAUSTED")
         op.status = "submitted"
         op.attempts += 1
-        request = {
+        request: dict[str, Any] = {
             "idempotency_key": op.idempotency_key,
             "payment_reference": _payment_reference(session, op.order_id),
             "amount_minor": op.amount_minor,
@@ -446,12 +446,19 @@ def refresh_processing(op_id: str) -> RefundOutcome:
     return _apply_provider_state(op_id, found)
 
 
-def reconcile_pending(limit: int = 20) -> list[RefundOutcome]:
-    """Sweeper for operations left uncertain (worker crash, timeouts, slow settlement)."""
+def reconcile_pending(limit: int = 20, stale_seconds: float = 0) -> list[RefundOutcome]:
+    """Sweeper for operations left uncertain (worker crash, timeouts, slow settlement).
+
+    ``stale_seconds`` skips operations touched very recently (likely still owned by a running workflow).
+    """
+    cutoff = datetime.now(UTC) - timedelta(seconds=stale_seconds)
     with session_scope() as session:
         ids = session.scalars(
             select(RefundOperation.id)
-            .where(RefundOperation.status.in_(("submitted", "unknown", "processing", "pending")))
+            .where(
+                RefundOperation.status.in_(("submitted", "unknown", "processing", "pending")),
+                RefundOperation.updated_at <= cutoff,
+            )
             .order_by(RefundOperation.updated_at)
             .limit(limit)
         ).all()

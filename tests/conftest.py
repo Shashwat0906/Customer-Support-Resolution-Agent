@@ -105,10 +105,14 @@ ADMIN = {"X-Admin-Token": "dev-mock-admin-token"}
 def anchor(migrated_db: None, mock_server: str) -> Iterator[datetime]:
     """Fresh seeded dataset in the DB and the mock services, sharing one anchor time."""
     from app.db.session import session_scope
+    from app.llm import mock as mock_llm
     from app.services import faults
+    from scripts.ingest_policies import ingest
     from scripts.seed_data import reset, seed
 
+    ingest(prune=True)  # undo policy rows added by adversarial tests
     faults.disarm_all()
+    mock_llm.disarm_all()
     with session_scope() as session:
         reset(session)
         anchor_time = seed(session)
@@ -116,6 +120,7 @@ def anchor(migrated_db: None, mock_server: str) -> Iterator[datetime]:
     assert r.status_code == 200, r.text
     yield anchor_time
     faults.disarm_all()
+    mock_llm.disarm_all()
 
 
 @pytest.fixture

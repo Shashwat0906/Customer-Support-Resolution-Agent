@@ -7,11 +7,12 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Principal
 from app.config import get_settings
-from app.db.models import Ticket, TicketMessage
+from app.db.models import Ticket, TicketMessage, WorkflowRun
 from app.db.session import session_scope
 from app.schemas.errors import ExternalServiceError, NotFound
 from app.services import audit, records
@@ -125,3 +126,35 @@ def update_ticket(
             payload={"status": status, "attempts": attempts, "error": last_error},
         )
     return {"status": status, "synced": synced, "attempts": attempts, "error": last_error}
+
+
+def retry_unsynced(limit: int = 20) -> int:
+    """Sweeper: re-send the final ticket update for completed runs whose external sync failed.
+
+    The same idempotency key is reused, so a sync that actually landed is not duplicated.
+    """
+    with session_scope() as session:
+        rows = session.execute(
+            select(
+                WorkflowRun.id, WorkflowRun.ticket_id, WorkflowRun.outcome, WorkflowRun.final_response, Ticket.status
+            )
+            .join(Ticket, Ticket.id == WorkflowRun.ticket_id)
+            .where(
+                WorkflowRun.completed_at.is_not(None),
+                WorkflowRun.final_response.is_not(None),
+                Ticket.external_synced_at.is_(None),
+                ~WorkflowRun.id.startswith("run_hist_"),
+            )
+            .limit(limit)
+        ).all()
+    synced = 0
+    for run_id, ticket_id, outcome, final_response, status in rows:
+        result = update_ticket(
+            ticket_id,
+            status=status,
+            note=f"[{outcome}] {final_response}",
+            idempotency_key=f"{run_id}:final:{outcome}",
+            run_id=run_id,
+        )
+        synced += int(result["synced"])
+    return synced

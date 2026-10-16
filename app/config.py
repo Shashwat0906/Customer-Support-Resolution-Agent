@@ -51,8 +51,11 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_timeout_seconds: float = 30.0
     llm_max_repair_attempts: int = Field(default=1, ge=0, le=3)
-    llm_input_cost_per_mtok: float = 3.0
-    llm_output_cost_per_mtok: float = 15.0
+    llm_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    llm_max_tokens: int = Field(default=16000, ge=256, le=64000)
+    # Defaults are Claude Opus 5.5 list prices (USD per million tokens); used for cost estimates.
+    llm_input_cost_per_mtok: float = 4.0
+    llm_output_cost_per_mtok: float = 20.0
     llm_fallback_reason: str = ""
 
     # Embeddings

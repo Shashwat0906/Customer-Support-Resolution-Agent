@@ -55,10 +55,15 @@ def _as_date(v: Any) -> date | None:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
 
-def ingest(docs_dir: Path = DOCS_DIR) -> int:
+def ingest(docs_dir: Path = DOCS_DIR, prune: bool = False) -> int:
+    """Upsert every document in ``docs_dir``; with ``prune``, delete documents no longer in the folder."""
     count = 0
     with session_scope() as session:
-        for path in sorted(docs_dir.glob("*.md")):
+        paths = sorted(docs_dir.glob("*.md"))
+        if prune:
+            keep = [parse_document(p)[0]["id"] for p in paths]
+            session.execute(delete(PolicyDocument).where(PolicyDocument.id.not_in(keep)))
+        for path in paths:
             meta, sections = parse_document(path)
             doc = session.get(PolicyDocument, meta["id"]) or PolicyDocument(id=meta["id"])
             doc.policy_key = meta["policy_key"]
@@ -97,9 +102,14 @@ def ingest(docs_dir: Path = DOCS_DIR) -> int:
 
 
 def main() -> None:
+    import argparse
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    parser = argparse.ArgumentParser(description="Ingest policy documents")
+    parser.add_argument("--prune", action="store_true", help="remove documents that are no longer in the folder")
+    args = parser.parse_args()
     wait_for_db()
-    log.info("ingested %s policy chunks", ingest())
+    log.info("ingested %s policy chunks", ingest(prune=args.prune))
 
 
 if __name__ == "__main__":
