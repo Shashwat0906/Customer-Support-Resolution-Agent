@@ -47,12 +47,22 @@ def disarm_all() -> None:
         _faults.clear()
 
 
-def _take(agent: str) -> str | None:
+PROPOSAL_FAULTS = ("inflate_amount", "wrong_order")
+
+
+def _take(agent: str, proposal_turn: bool = True) -> str | None:
+    """Consume the next fault for this agent. Proposal faults only apply on a turn that writes a proposal."""
     with _lock:
         queue = _faults.get(agent)
-        if queue:
+        if queue and (proposal_turn or queue[0] not in PROPOSAL_FAULTS):
             return queue.pop(0)
     return None
+
+
+def _needed_tools(task: dict[str, Any]) -> list[str]:
+    if task.get("category") == "order_status":
+        return ["get_order", "get_shipment_status"]
+    return ["get_order", "get_return_status", "get_payment_status"]
 
 
 def _task(messages: list[dict[str, Any]]) -> dict[str, Any]:
@@ -105,7 +115,7 @@ _DETAIL = re.compile(
 )
 _REFUND = re.compile(r"\b(refund\w*|money back|returned|return(ing)?|reimburse\w*)\b", re.I)
 _STATUS = re.compile(
-    r"\b(where is|where's|track(ing)?|deliver(y|ed)?|arriv\w+|shipped|shipping|status|late|"
+    r"\b(where is|where's|track(ing)?|deliver(y|ed)?|arriv\w+|ship|shipped|shipping|dispatch\w*|status|late|"
     r"delay\w*|hasn'?t (come|arrived)|not (yet )?received my (order|package))\b",
     re.I,
 )
@@ -114,8 +124,9 @@ _ORDER = re.compile(r"\bORD[-\s]?(\d{4})\b|\border\s*(?:no\.?|number|#)?\s*(\d{4
 
 def classify(text: str) -> dict[str, Any]:
     order = None
-    if m := _ORDER.search(text):
-        order = f"ORD-{m.group(1) or m.group(2)}"
+    if refs := _ORDER.findall(text):  # the most recent reference wins (customers correct themselves)
+        last = refs[-1]
+        order = f"ORD-{last[0] or last[1]}"
     damaged = bool(_DAMAGE.search(text))
     if damaged:
         category = "damaged_item"
@@ -357,7 +368,13 @@ class MockLLM:
     def chat(
         self, *, agent: str, system: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
     ) -> LLMResponse:
-        fault = _take(agent)
+        task_preview = _task(messages)
+        attempted = _results(messages)
+        missing_tools = [n for n in _needed_tools(task_preview) if n not in attempted]
+        if agent == "single" and "search_policy" not in attempted:
+            missing_tools.append("search_policy")
+        proposal_turn = agent == "resolution" or (agent == "single" and not missing_tools)
+        fault = _take(agent, proposal_turn)
         prompt_chars = len(system) + sum(len(str(m.get("content", ""))) for m in messages)
 
         def reply(text: str = "", calls: list[ToolCall] | None = None) -> LLMResponse:
@@ -395,12 +412,12 @@ class MockLLM:
         if agent == "classifier":
             return reply(json.dumps(classify("\n".join(task.get("messages", [])))))
         if agent == "investigation":
-            if not called:
+            # Call every needed tool not yet attempted (also after a refused call).
+            if missing_tools:
                 oid = task["order_id"]
-                names = ["get_order", "get_return_status", "get_payment_status"]
-                if task.get("category") == "order_status":
-                    names = ["get_order", "get_shipment_status"]
-                return reply(calls=[ToolCall(f"c{i}", n, {"order_id": oid}) for i, n in enumerate(names)])
+                return reply(
+                    calls=[ToolCall(f"c{len(messages)}_{i}", n, {"order_id": oid}) for i, n in enumerate(missing_tools)]
+                )
             return reply(json.dumps(_evidence(task["order_id"], results)))
         if agent == "policy":
             if not called:
@@ -413,13 +430,15 @@ class MockLLM:
                 )
             )
         if agent == "single":
-            if not called:
+            if missing_tools:
                 oid = task["order_id"]
-                names = ["get_order", "get_return_status", "get_payment_status"]
-                if task.get("category") == "order_status":
-                    names = ["get_order", "get_shipment_status"]
-                calls = [ToolCall(f"c{i}", n, {"order_id": oid}) for i, n in enumerate(names)]
-                return reply(calls=[*calls, _policy_call(task, "p0")])
+                calls = [
+                    _policy_call(task, f"p{len(messages)}")
+                    if n == "search_policy"
+                    else ToolCall(f"c{len(messages)}_{i}", n, {"order_id": oid})
+                    for i, n in enumerate(missing_tools)
+                ]
+                return reply(calls=calls)
             evidence = _evidence(task["order_id"], results)
             policy = _policy_finding(task.get("category", "other"), results)
             facts = {"order": _data(results, "get_order"), "return": _data(results, "get_return_status")}

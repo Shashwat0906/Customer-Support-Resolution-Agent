@@ -6,7 +6,8 @@ Classify the complaint into exactly one category:
 - refund_request: a refund for a returned item or a refund that has not arrived
 - damaged_item: an item that arrived damaged or defective
 - other: anything else, or too unclear to tell
-Extract the order number only if the customer wrote one. Extract product mentions. For damaged items, extract a
+Extract the order number only if the customer wrote one; if they mention several (e.g. correcting themselves),
+use the most recent one. Extract product mentions. For damaged items, extract a
 concrete description of the damage if given, whether the customer says they have photos (true/false, or null if not
 mentioned), and whether they prefer a refund or a replacement (null if not stated)."""
 

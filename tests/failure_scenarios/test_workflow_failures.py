@@ -312,3 +312,12 @@ def test_concurrent_runs_same_order_refund_once(client, mode: str) -> None:  # t
     outcomes = sorted(run_state(client, x, h)["outcome"] or "" for x in (run_a, run_b))
     assert [r for r in provider_refunds() if r["order_id"] == "ORD-5001"].__len__() == 1
     assert "refund_succeeded" in outcomes
+
+
+def test_customer_correcting_order_number_uses_latest_reference(client) -> None:  # type: ignore[no-untyped-def]
+    run, h = start_and_drain(client, "C-1001", "Please check order ORD-9999")
+    assert run["status"] == "awaiting_customer"
+    reply(client, run["run_id"], h, "Sorry, I meant ORD-5002, where is it?")
+    drain()
+    done = review_state(client, run["run_id"])
+    assert done["outcome"] == "answered" and done["state"]["order_id"] == "ORD-5002"

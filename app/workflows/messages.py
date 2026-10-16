@@ -199,6 +199,7 @@ _CLAIM_SUCCESS = re.compile(
     r"confirmed)|we('ve| have) (refunded|issued (you )?a refund))",
     re.I,
 )
+_NEGATION = re.compile(r"\b(no|not|never|nor)\b\s*$", re.I)  # "No refund has been issued" is not a claim
 _AMOUNT = re.compile(r"(?:₹|INR|Rs\.?)\s?([\d,]+(?:\.\d{1,2})?)", re.I)
 
 
@@ -206,7 +207,9 @@ def check_grounding(
     message: str, *, outcome: str | None, allowed_amounts: set[int], required_refs: list[str]
 ) -> list[str]:
     problems = []
-    if outcome != "refund_succeeded" and _CLAIM_SUCCESS.search(message):
+    if outcome != "refund_succeeded" and any(
+        not _NEGATION.search(message[max(0, m.start() - 12) : m.start()]) for m in _CLAIM_SUCCESS.finditer(message)
+    ):
         problems.append("claims a completed refund that is not verified")
     for m in _AMOUNT.finditer(message):
         value = round(float(m.group(1).replace(",", "")) * 100)

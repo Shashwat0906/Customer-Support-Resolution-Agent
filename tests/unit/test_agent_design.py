@@ -201,3 +201,13 @@ def test_grounding_guard() -> None:
         allowed_amounts={899_900},
         required_refs=["rf_1"],
     )
+
+
+def test_grounding_guard_respects_negation() -> None:
+    from app.workflows.messages import check_grounding
+
+    for text in ("No refund has been issued.", "A refund was not issued yet."):
+        assert not check_grounding(text, outcome="refund_rejected", allowed_amounts=set(), required_refs=[]), text
+    assert check_grounding(
+        "Good news, your refund has been issued!", outcome="refund_rejected", allowed_amounts=set(), required_refs=[]
+    )
