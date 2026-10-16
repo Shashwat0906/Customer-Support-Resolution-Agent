@@ -9,7 +9,9 @@ from app.config import get_settings
 from app.db.models import Base
 
 config = context.config
-if config.config_file_name is not None:
+import logging  # noqa: E402
+
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata

@@ -730,7 +730,10 @@ def verify_refund(state: ResolutionState) -> Update:
         status, ref = result.status, result.provider_reference or ref
         if status not in ("succeeded", "failed"):
             time.sleep(settings.retry_backoff_seconds * (2 ** (attempts - 1)))
+    with session_scope() as s:  # evidence shown to people must reflect the ledger after execution
+        order_now = records.get_order(s, state.authenticated_customer_id, state.order_id or "").model_dump(mode="json")
     update: Update = {
+        "verified_facts": {**state.verified_facts, "order": order_now},
         "execution_status": status,
         "external_result_reference": ref,
         "retry_counts": {"refund_reconcile": attempts} if attempts else {},

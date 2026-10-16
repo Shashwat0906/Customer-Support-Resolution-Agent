@@ -1,0 +1,54 @@
+// Browser smoke test of the demo flows (customer refund -> reviewer approval -> verified refund; clarification).
+// Usage: UI_URL=http://localhost:8080 SCREENSHOT_DIR=/tmp node tests/e2e/ui_smoke.cjs  (needs the "playwright" package)
+// Requires freshly reset demo data (python -m scripts.bootstrap --reset-demo).
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+const BASE = (process.env.UI_URL || "http://localhost:8080").replace(/\/$/, "");
+const OUT = process.env.SCREENSHOT_DIR || ".";
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  const shot = (n) => page.screenshot({ path: OUT + "/" + n + ".png", fullPage: true });
+  await page.goto(BASE + "/");
+  await page.getByText("Aarav Sharma").click();
+  await page.getByText("How can we help?").waitFor();
+  await shot("01-customer-home");
+  await page.locator("textarea").fill("I returned my headphones last week, but I still haven't received my refund.");
+  await page.getByRole("button", { name: /Submit complaint/ }).click();
+  await page.getByText("A refund proposal is waiting for a support reviewer").waitFor({ timeout: 20000 });
+  await page.waitForTimeout(800);
+  await shot("02-awaiting-approval");
+  await page.getByRole("button", { name: "Switch user" }).click();
+  await page.getByText("Kabir Malhotra").click();
+  await page.getByText("Pending approvals").waitFor();
+  await page.locator("a.list-item").first().click();
+  await page.getByText("Proposed action").waitFor();
+  await shot("03-approval-detail");
+  await page.locator("textarea").fill("Return received and inspection passed.");
+  await page.getByRole("button", { name: "Approve refund" }).click();
+  await page.getByRole("button", { name: /Confirm approve/ }).click();
+  await page.getByText("Reviewer").first().waitFor();
+  await page.getByText("Open ticket and timeline").click();
+  await page.getByText("Refund confirmed by the payment provider.").waitFor({ timeout: 20000 });
+  await page.waitForTimeout(800);
+  await shot("04-refund-confirmed");
+  const facts = await page.locator("dl.kv").first().innerText();
+  if (!/Refunded\s+₹8,999\.00/.test(facts)) throw new Error("stale refunded fact: " + facts);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await shot("05-mobile");
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await page.getByRole("button", { name: "Switch user" }).click();
+  await page.getByText("Siddharth Rao").click();
+  await page.locator("textarea").fill("Where is my order?");
+  await page.getByRole("button", { name: /Submit complaint/ }).click();
+  await page.getByText("Which order is this about?").first().waitFor({ timeout: 20000 });
+  await page.locator("textarea").fill("It's ORD-5018, the keyboard");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByText(/out for delivery today/).first().waitFor({ timeout: 20000 });
+  await page.waitForTimeout(800);
+  await shot("06-clarification-resolved");
+  console.log("ERRORS:", JSON.stringify(errors));
+  await browser.close();
+})().catch((e) => { console.error(e); process.exit(1); });

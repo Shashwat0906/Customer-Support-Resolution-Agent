@@ -57,6 +57,8 @@ def test_full_refund_flow(client, mode: str) -> None:  # type: ignore[no-untyped
     assert done["status"] == "completed" and done["outcome"] == "refund_succeeded", done
     ref = done["state"]["external_result_reference"]
     assert ref and ref in done["final_response"] and "₹8,999.00" in done["final_response"]
+    # Evidence shown after execution reflects the ledger, not the pre-refund snapshot.
+    assert done["state"]["verified_facts"]["order"]["refunded_amount_minor"] == 899_900
     remote = [x for x in provider_refunds() if x["order_id"] == "ORD-5001"]
     assert len(remote) == 1 and remote[0]["id"] == ref
     ticket = client.get(f"/tickets/{done['ticket_id']}", headers=h).json()

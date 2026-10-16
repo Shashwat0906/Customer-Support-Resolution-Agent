@@ -28,6 +28,14 @@ CUSTOMER_VISIBLE_PAYLOADS = {
     "refund_succeeded",
     "response_sent",
     "escalated",
+    "tool_called",
+    "decision_made",
+    "proposal_created",
+    "approval_requested",
+    "refund_reserved",
+    "refund_verified",
+    "refund_execution_result",
+    "ticket_updated",
 }
 
 

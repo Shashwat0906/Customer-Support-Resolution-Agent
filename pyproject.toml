@@ -41,7 +41,7 @@ extend-exclude = ["frontend", "migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
-ignore = ["S101", "B008", "RUF012", "S311", "SIM117"]
+ignore = ["S101", "B008", "RUF012", "S311", "SIM117", "SIM300"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106", "S108", "E501", "RUF059"]
