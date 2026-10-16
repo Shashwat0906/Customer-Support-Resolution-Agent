@@ -51,11 +51,15 @@ def get_principal(authorization: str = Header(default=""), db: Session = Depends
         staff = db.scalar(select(StaffUser).where(StaffUser.external_auth_subject == subject))
         if staff is None or not staff.active:
             raise Unauthorized("UNKNOWN_PRINCIPAL", "The authenticated user is not recognised.")
-        return Principal("staff", staff.id, subject, staff.name, staff.role, staff.approval_limit_minor)
+        principal = Principal("staff", staff.id, subject, staff.name, staff.role, staff.approval_limit_minor)
+        db.commit()  # end the read transaction: identity lookups must not hold locks for the whole request
+        return principal
     customer = db.scalar(select(Customer).where(Customer.external_auth_subject == subject))
     if customer is None:
         raise Unauthorized("UNKNOWN_PRINCIPAL", "The authenticated user is not recognised.")
-    return Principal("customer", customer.id, subject, customer.name, "customer")
+    principal = Principal("customer", customer.id, subject, customer.name, "customer")
+    db.commit()  # end the read transaction: identity lookups must not hold locks for the whole request
+    return principal
 
 
 def require_customer(principal: Principal = Depends(get_principal)) -> Principal:

@@ -10,8 +10,19 @@ import yaml
 from app.db import seed_dataset as ds
 
 CASES = yaml.safe_load(Path("evals/datasets/cases.yaml").read_text())["cases"]
-REQUIRED = {"id", "category", "split", "customer", "order", "message", "applicable_policy", "allowed_actions",
-            "forbidden_actions", "approval_required", "expect"}
+REQUIRED = {
+    "id",
+    "category",
+    "split",
+    "customer",
+    "order",
+    "message",
+    "applicable_policy",
+    "allowed_actions",
+    "forbidden_actions",
+    "approval_required",
+    "expect",
+}
 
 
 def test_sixty_cases_ten_per_category_with_heldout() -> None:

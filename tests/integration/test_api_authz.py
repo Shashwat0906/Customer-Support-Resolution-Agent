@@ -117,3 +117,10 @@ def test_start_run_returns_202_and_rejects_duplicates(client) -> None:  # type: 
     dup = client.post(f"/tickets/{t['ticket_id']}/runs", headers=h)
     assert dup.status_code == 409 and dup.json()["error"]["code"] == "RUN_ALREADY_ACTIVE"
     assert client.get(f"/runs/{r.json()['run_id']}", headers=h).json()["status"] == "queued"
+
+
+def test_demo_reset_requires_senior_reviewer_and_works(client) -> None:  # type: ignore[no-untyped-def]
+    assert client.post("/demo/reset", headers=reviewer_headers(client, "S-01")).status_code == 403
+    assert client.post("/demo/reset", headers=customer_headers(client, "C-1001")).status_code == 403
+    r = client.post("/demo/reset", headers=reviewer_headers(client, "S-02"))
+    assert r.status_code == 200, r.text
