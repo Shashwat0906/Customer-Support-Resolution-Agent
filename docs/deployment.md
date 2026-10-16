@@ -101,9 +101,19 @@ Results of the 20-step gate. **Local** = Docker Compose / single-container image
 | 14 | Ineligible refund, no refund occurs | ✅ Local — Live: *Unverified* |
 | 15 | Timeout after acceptance, no duplicate | ✅ Local — Live: *Unverified* |
 | 16 | Ticket-update retries | ✅ Local — Live: *Unverified* |
-| 17 | Inspect deployment logs | *Unverified* (pending live deploy) |
+| 17 | Inspect deployment logs | ✅ Partial: Render built the image (~40 s) and the container failed fast with `DATABASE_URL must point to the production database (it is unset or local)` — the intended clear failure. Logs of a healthy start: *Unverified* |
 | 18 | Deployed health endpoint | *Unverified* (pending live deploy) |
 | 19 | End-to-end tests against deployment | *Unverified* (pending live deploy) |
 | 20 | Document exact tests and results | This table; updated after the live run |
 
-**Blocker for 11–19 (live):** the production database URL (see §1). Everything else is prepared.
+**Live status (2026-10-16):** services created on Render (Singapore, free):
+`https://support-resolution-agent-api.onrender.com` (fails at start until `DATABASE_URL` is set) and
+`https://support-resolution-agent-dashboard.onrender.com` (deploy `live`). The static site's first deploy succeeded.
+
+**Blockers for 11–19 (live):**
+1. The production `DATABASE_URL` (owner-provided; see §1).
+2. The development session that built this project cannot reach `*.onrender.com` (its egress proxy returns 403), so
+   the live smoke tests must be run from a machine with access, or after the environment's network policy allows
+   `onrender.com`: `python -m scripts.smoke_api --base-url https://support-resolution-agent-api.onrender.com
+   --origin https://support-resolution-agent-dashboard.onrender.com --reset` and
+   `UI_URL=https://support-resolution-agent-dashboard.onrender.com node tests/e2e/ui_smoke.cjs`.
