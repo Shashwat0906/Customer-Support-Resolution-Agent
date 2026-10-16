@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _production_checks(self) -> Settings:
         if self.environment == "production":
+            if "@localhost" in self.database_url or "@127.0.0.1" in self.database_url:
+                raise ValueError("DATABASE_URL must point to the production database (it is unset or local)")
             if self.jwt_secret == DEV_JWT_SECRET or len(self.jwt_secret) < 32:
                 raise ValueError("JWT_SECRET must be set to a random value of at least 32 characters in production")
             if self.mock_admin_token == "dev-mock-admin-token":

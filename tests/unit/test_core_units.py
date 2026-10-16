@@ -51,6 +51,7 @@ def test_production_settings_require_secrets() -> None:
         jwt_secret="x" * 40,
         mock_admin_token="secret-admin",
         cors_origins="https://app.example",
+        database_url="postgresql://u:p@db.example:5432/d",
         _env_file=None,
     )  # type: ignore[call-arg]
     assert ok.cors_origin_list == ["https://app.example"]
@@ -67,3 +68,14 @@ def test_missing_llm_key_falls_back_to_mock() -> None:
     s = Settings(llm_provider="anthropic", llm_api_key="", _env_file=None)  # type: ignore[call-arg]
     assert s.llm_provider == "mock"
     assert "LLM_API_KEY" in s.llm_fallback_reason
+
+
+def test_production_requires_real_database_url() -> None:
+    with pytest.raises(ValidationError, match="DATABASE_URL"):
+        Settings(
+            environment="production",
+            jwt_secret="x" * 40,
+            mock_admin_token="secret-admin",
+            cors_origins="https://app.example",
+            _env_file=None,
+        )  # type: ignore[call-arg]
