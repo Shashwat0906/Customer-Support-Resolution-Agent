@@ -25,7 +25,7 @@ def get_engine() -> Engine:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_pool_size,
         pool_pre_ping=True,
-        connect_args={"connect_timeout": 5},
+        connect_args={"connect_timeout": 10},  # serverless databases may need a few seconds to wake
     )
 
 

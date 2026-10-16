@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_JWT_SECRET = "dev-only-insecure-secret-change-me-0123456789"
@@ -93,7 +94,7 @@ class Settings(BaseSettings):
             v = "postgresql+psycopg://" + v[len("postgresql://") :]
         if not v.startswith("postgresql+psycopg://"):
             raise ValueError("DATABASE_URL must be a PostgreSQL URL (postgresql://...)")
-        return v
+        return _check_connection_params(v)
 
     @model_validator(mode="after")
     def _production_checks(self) -> Settings:
@@ -122,6 +123,49 @@ class Settings(BaseSettings):
         return self.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
+class ConfigurationError(RuntimeError):
+    """Invalid configuration. The message never contains configured values (they may be secrets)."""
+
+
+def _check_connection_params(url: str) -> str:
+    """Validate connection parameters without ever echoing the URL (it contains credentials).
+
+    * No ``search_path`` in a startup ``options`` parameter: poolers such as Neon's reject startup options.
+      (The checkpointer sets its schema with ``SET search_path`` after connecting.)
+    * Neon: a direct (unpooled) endpoint is required, because the checkpointer's session-level ``search_path`` is
+      not preserved by PgBouncer transaction pooling; TLS is required (``sslmode=require`` added if absent).
+    * Every other parameter (``sslmode``, ``channel_binding``, ...) is passed through unchanged.
+    """
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    if any(k == "options" and "search_path" in val for k, val in query):
+        raise ValueError(
+            "DATABASE_URL must not set search_path in its 'options' parameter (poolers reject startup options); "
+            "remove it — the application selects schemas itself"
+        )
+    if host.endswith(".neon.tech"):
+        if "-pooler." in host:
+            raise ValueError(
+                "DATABASE_URL points at Neon's pooled endpoint (host contains '-pooler'). Use the direct connection "
+                "string instead: in the Neon console open Connect, turn 'Connection pooling' off and copy the URL "
+                "(same credentials; the host has no '-pooler')"
+            )
+        if not any(k == "sslmode" for k, _ in query):
+            query.append(("sslmode", "require"))
+            url = urlunsplit(parts._replace(query=urlencode(query)))
+    return url
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    try:
+        return Settings()
+    except ValidationError as exc:
+        # Report which settings are wrong and why, but never their values: pydantic's default message includes the
+        # input (e.g. DATABASE_URL with its password), which would end up in deployment logs.
+        problems = "; ".join(
+            f"{'.'.join(str(p) for p in err['loc']) or 'settings'}: {err['msg']}"
+            for err in exc.errors(include_input=False, include_url=False)
+        )
+        raise ConfigurationError(f"Invalid configuration: {problems}") from None

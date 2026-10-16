@@ -28,7 +28,7 @@ Backend web service environment (set in the Render dashboard; never committed):
 |---|---|
 | `ROLE` | `all` |
 | `ENVIRONMENT` | `production` (enables the production checks below) |
-| `DATABASE_URL` | the PostgreSQL URL (`postgres://…` accepted; add `?sslmode=require` if the provider needs TLS) |
+| `DATABASE_URL` | the PostgreSQL URL (`postgres://…` accepted). **Neon: use the direct (unpooled) URL** — see §2.1. TLS parameters (`sslmode`, `channel_binding`) are passed through; `sslmode=require` is added for Neon hosts if missing |
 | `JWT_SECRET` | random, ≥ 32 chars |
 | `MOCK_ADMIN_TOKEN`, `PAYMENTS_API_KEY` | random |
 | `CORS_ORIGINS` | the static site origin, e.g. `https://support-agent-dashboard.onrender.com` |
@@ -39,6 +39,25 @@ Backend web service environment (set in the Render dashboard; never committed):
 Production refuses to start (clear error in the logs) if `DATABASE_URL` is unset/local, `JWT_SECRET` is the dev value
 or short, `MOCK_ADMIN_TOKEN` is the default, or `CORS_ORIGINS` contains `*`. `PORT` is provided by Render and used by
 `start.sh`.
+
+### 2.1 Neon: direct vs pooled connection string
+
+Neon offers two URLs per branch. Use the **direct** one:
+
+| | Host looks like | Use? |
+|---|---|---|
+| Pooled (PgBouncer, transaction mode) | `ep-xxxx-123456-pooler.<region>.aws.neon.tech` | No — rejected at startup with an explanatory error |
+| Direct | `ep-xxxx-123456.<region>.aws.neon.tech` | Yes |
+
+Why: the LangGraph checkpointer keeps its tables in schema `langgraph` and selects it with `SET search_path` on each
+new connection. Transaction pooling does not keep session settings between transactions, and the pooler rejects the
+alternative (a `-c search_path=…` startup option) with `unsupported startup parameter in options: search_path`.
+
+To switch: Neon console → your project → **Connect** → turn **Connection pooling** off → copy the connection string
+(same user, password and database; only the host loses `-pooler`; keep `?sslmode=require&channel_binding=require`).
+Equivalently, delete `-pooler` from the host part of the existing URL. Paste it as `DATABASE_URL` in Render → service
+→ Environment (Render redeploys). The free plan's direct-connection limit is ample for this app (SQLAlchemy pool ≤ 10
+plus checkpointer pool ≤ 5 connections).
 
 Static site: build command `cd frontend && npm ci && npm run build`, publish directory `frontend/dist`, environment
 `VITE_API_BASE_URL=https://<api-service>.onrender.com`.
@@ -70,6 +89,10 @@ are stored in GitHub); a green CI run does not prove the live service works — 
 | Browser shows "Cannot reach the API" | `VITE_API_BASE_URL` missing/wrong at build time (rebuild the static site), or the API is asleep (first request ~1 min) |
 | CORS error in the browser console | `CORS_ORIGINS` must exactly match the site origin (scheme + host, no trailing slash) |
 | Service healthy but `/health/ready` is 503 | Mock services not running, data not seeded, or policies not ingested — check start logs |
+| `unsupported startup parameter in options: search_path` | Fixed in code (no startup options are sent). If still seen, the URL itself carries `options=…search_path…` (now rejected with a clear error) — remove it |
+| `DATABASE_URL points at Neon's pooled endpoint` | Use the direct (unpooled) URL — §2.1 |
+| `Network is unreachable` for an IPv6 address | Render free instances have no IPv6 egress. psycopg tries every resolved address and falls back to IPv4, so these lines are harmless noise when listed next to another error; fix that other error. They only matter if *no* IPv4 attempt is listed |
+| Configuration errors in logs | Messages name the setting and the problem but never print values (credentials stay out of logs) |
 | Port/binding issues | The app binds `0.0.0.0:$PORT`; do not hard-code a port in Render settings |
 | LLM errors (`LLM_AUTH_FAILED`, `LLM_RATE_LIMITED`, `LLM_REFUSAL`) | Runs escalate with the code in `escalation_reason`; check the key/quota; unset `LLM_PROVIDER` to return to the mock |
 | Docker build fails with TLS/certificate errors behind a proxy | Pass the proxy CA as a build secret: `--secret id=extra_ca,src=ca.pem` |
